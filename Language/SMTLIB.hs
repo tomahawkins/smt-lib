@@ -44,6 +44,9 @@ module Language.SMTLIB
   , Gta_response
   ) where
 
+import Data.List hiding (group)
+import Text.Printf
+
 type Numeral      = Integer
 type Symbol       = String
 type Keyword      = String
@@ -55,39 +58,98 @@ data Spec_constant
   | Spec_constant_binary      [Bool]
   | Spec_constant_string      String
 
+instance Show Spec_constant where
+  show a = case a of
+    Spec_constant_numeral     a -> show a
+    Spec_constant_decimal     a -> show (realToFrac a :: Double)
+    Spec_constant_hexadecimal a -> printf "#x%x" a
+    Spec_constant_binary      a -> printf "#b%s" [ if a then '1' else '0' | a <- a ]
+    Spec_constant_string      a -> show a
+
 data S_expr
   = S_expr_constant Spec_constant
   | S_expr_symbol   Symbol
   | S_expr_keyword  Keyword
   | S_exprs         [S_expr]
 
+group :: String -> String
+group a = "( " ++ a ++ " )"
+
+items :: Show a => [a] -> String
+items = items' . map show
+
+items' :: [String] -> String
+items' = intercalate " "
+
+instance Show S_expr where
+  show a = case a of
+    S_expr_constant a -> show a
+    S_expr_symbol   a -> a
+    S_expr_keyword  a -> a
+    S_exprs         a -> group $ items a
+
 data Identifier
   = Identifier  Symbol
   | Identifier_ Symbol [Numeral]
+
+instance Show Identifier where
+  show a = case a of
+    Identifier  a -> a
+    Identifier_ a b -> group $ items' ["_", a, items b]
 
 data Sort
   = Sort_bool
   | Sort_identifier  Identifier
   | Sort_identifiers Identifier [Sort]
 
+instance Show Sort where
+  show a = case a of
+    Sort_bool -> "Bool"
+    Sort_identifier  a -> show a
+    Sort_identifiers a b -> group $ show a ++ " " ++ items b
+
 data Attribute_value
   = Attribute_value_spec_constant Spec_constant
   | Attribute_value_symbol        Symbol
   | Attribute_value_s_expr        [S_expr]
 
+instance Show Attribute_value where
+  show a = case a of
+    Attribute_value_spec_constant a -> show a
+    Attribute_value_symbol        a -> a
+    Attribute_value_s_expr        a -> group $ items a
+
 data Attribute
   = Attribute        Keyword
   | Attribute_s_expr Keyword S_expr
+
+instance Show Attribute where
+  show a = case a of
+    Attribute        a -> a
+    Attribute_s_expr a b -> a ++ " " ++ show b
 
 data Qual_identifier
   = Qual_identifier      Identifier
   | Qual_identifier_sort Identifier Sort
 
+instance Show Qual_identifier where
+  show a = case a of
+    Qual_identifier      a -> show a
+    Qual_identifier_sort a b -> group $ items' ["as", show a, show b]
+
 data Var_binding
   = Var_binding Symbol Term
 
+instance Show Var_binding where
+  show a = case a of
+    Var_binding a b -> group $ items' [a, show b]
+
 data Sorted_var
   = Sorted_var Symbol Sort
+
+instance Show Sorted_var where
+  show a = case a of
+    Sorted_var a b -> group $ items' [a, show b]
 
 data Term
   = Term_spec_constant    Spec_constant
@@ -99,13 +161,34 @@ data Term
   | Term_exists           [Sorted_var] Term
   | Term_attributes       Term [Attribute]
 
+instance Show Term where
+  show a = case a of
+    Term_spec_constant    a -> show a
+    Term_qual_identifier  a -> show a
+    Term_qual_identifier_ a b -> group $ items' [show a, items b]
+    Term_distinct         a b -> group $ items' ["distinct", show a, items b]
+    Term_let              a b -> group $ items' ["let",    group $ items a, show b]
+    Term_forall           a b -> group $ items' ["forall", group $ items a, show b]
+    Term_exists           a b -> group $ items' ["exists", group $ items a, show b]
+    Term_attributes       a b -> group $ items' ["!", show a, items b]
+
 data Sort_symbol_decl
   = Sort_symbol_decl Identifier Numeral [Attribute]
+
+instance Show Sort_symbol_decl where
+  show a = case a of
+    Sort_symbol_decl a b c -> group $ items' [show a, show b, items c]
 
 data Meta_spec_constant
   = Meta_spec_constant_numeral
   | Meta_spec_constant_decimal
   | Meta_spec_constant_string
+
+instance Show Meta_spec_constant where
+  show a = case a of
+    Meta_spec_constant_numeral -> "NUMERAL"
+    Meta_spec_constant_decimal -> "DECIMAL"
+    Meta_spec_constant_string  -> "STRING"
 
 data Fun_symbol_decl
   = Fun_symbol_decl_spec_constant      Sort [Attribute]
