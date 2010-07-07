@@ -42,10 +42,14 @@ module Language.SMTLIB
   , Gv_response
   , T_valuation_pair
   , Gta_response
+  -- * Parsing
+  , parseSMTLIB
   ) where
 
 import Data.List hiding (group)
 import Text.Printf
+
+import qualified Language.SMTLIB.Lexer as L
 
 type Numeral      = Integer
 type Symbol       = String
@@ -428,4 +432,11 @@ group a = "( " ++ intercalate " " a ++ " )"
 
 showBool :: Bool -> String
 showBool a = if a then "true" else "false"
+
+parseSMTLIB :: String -> IO Script
+parseSMTLIB a = do
+  mapM_ print tokens
+  return $ Script [] --XXX
+  where
+  tokens = L.lexSMTLIB a
 

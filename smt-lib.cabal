@@ -23,16 +23,14 @@ cabal-version: >= 1.6
 library
     build-depends:
         base       >= 4.0 && < 5.0,
+        array      >= 0.3 && < 0.4,
         polyparse  >= 1.4
 
     exposed-modules:
         Language.SMTLIB
+        Language.SMTLIB.Lexer
 
---    extensions:
-
-    if impl(ghc > 6.8)
-          ghc-options: -fwarn-tabs
-    ghc-options:       -W
+    ghc-options: -W
 
 source-repository head
     type:     git
