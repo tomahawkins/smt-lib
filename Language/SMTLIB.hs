@@ -1,7 +1,7 @@
 -- | Parsing and printing SMT-LIB.
 module Language.SMTLIB
   (
-  -- * AST
+  -- * Syntax
     Numeral
   , Symbol
   , Keyword
@@ -43,10 +43,11 @@ module Language.SMTLIB
   , T_valuation_pair
   , Gta_response
   -- * Parsing
-  , parseSMTLIB
+  , parseScript
   ) where
 
 import Data.List hiding (group)
+import Text.ParserCombinators.Poly.Lazy hiding (Success)
 import Text.Printf
 
 import qualified Language.SMTLIB.Lexer as L
@@ -350,10 +351,18 @@ instance Show Command where
     Get_info   a -> group ["get-info", show a]
     Exit -> group ["exit"]
 
+command :: SMTLIB Command
+command = oneOf
+  [
+  ]
+
 data Script = Script [Command]
 
 instance Show Script where
   show (Script a) = unlines $ map show a
+
+script :: SMTLIB Script
+script = many command >>= return . Script
 
 data Gen_response
   = Unsupported
@@ -433,10 +442,11 @@ group a = "( " ++ intercalate " " a ++ " )"
 showBool :: Bool -> String
 showBool a = if a then "true" else "false"
 
-parseSMTLIB :: String -> IO Script
-parseSMTLIB a = do
-  mapM_ print tokens
-  return $ Script [] --XXX
-  where
-  tokens = L.lexSMTLIB a
+type SMTLIB a = Parser L.Token a
+
+tok :: L.Token -> SMTLIB ()
+tok a = satisfy (== a) >> return ()
+
+parseScript :: String -> Script
+parseScript = fst . runParser script . L.lexSMTLIB
 

@@ -1,6 +1,7 @@
 {
 module Language.SMTLIB.Lexer
-  ( lexSMTLIB
+  ( Token (..)
+  , lexSMTLIB
   , alexScanTokens
   , alexAndPred
   , alexPrevCharIs
