@@ -23,19 +23,19 @@ $bin   = 0-1
 
 tokens :-
 
-  $white+                         ;
-  \;.*                            ;
-  [$sym # $digit]$sym*            { Symbol  }
-  \|[$printable # \|]*\|          { Symbol  }
-  \:$sym+                         { Keyword }
-  $digit+\.$digit+                { Decimal . read }
-  $digit                          { Numeral . read }
-  \(                              { const LeftParen  }
-  \)                              { const RightParen }
-  \"(([$printable#\\]|\\.)*)\"    { String . read }
-  "#x"$hex+                       { Hex . drop 2 }
-  "#b"$bin+                       { Bin . drop 2 }
-  .                               { \ s -> error $ "unexpected character: '" ++ s ++ "'" }
+  $white+                            ;
+  \;.*                               ;
+  [$sym # $digit]$sym*               { Symbol  }
+  \|[$printable \n # \|]*\|          { Symbol  }
+  \:$sym+                            { Keyword }
+  $digit+\.$digit+                   { Decimal . read }
+  $digit                             { Numeral . read }
+  \(                                 { const LeftParen  }
+  \)                                 { const RightParen }
+  \"(([$printable \n # \\]|\\.)*)\"  { String . read }
+  "#x"$hex+                          { Hex . drop 2 }
+  "#b"$bin+                          { Bin . drop 2 }
+  .                                  { \ s -> error $ "unexpected character: '" ++ s ++ "'" }
 
 {
 data Token
@@ -48,9 +48,8 @@ data Token
   | Keyword String
   | LeftParen
   | RightParen
-  | EOF
   deriving (Eq,Show)
 
 lexSMTLIB :: String -> [Token]
-lexSMTLIB a = alexScanTokens a ++ [EOF]
+lexSMTLIB a = alexScanTokens a
 }
