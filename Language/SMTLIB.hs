@@ -32,26 +32,25 @@ module Language.SMTLIB
   , Reason_unknown       (..)
   , Status               (..)
   , Info_response        (..)
-  , Gi_response
-  , Cs_response
-  , Ga_response
   , Proof
-  , Gp_response
-  , Guc_response
   , Valuation_pair
-  , Gv_response
   , T_valuation_pair
-  , Gta_response
+  , Command_response     (..)
   -- * Parsing
   , parseScript
+  , parseResponses
+  , parseTheory
+  , parseLogic
   -- * Parsing Verification
+  , checkScript
+  , checkResponses
   , checkParser
   ) where
 
 import Data.List hiding (group)
 import System.Directory
 import System.IO
-import Text.ParserCombinators.Poly.Plain hiding (Success)
+import Text.ParserCombinators.Poly.Lazy hiding (Success)
 import Text.Printf
 
 import Language.SMTLIB.Lexer
@@ -63,7 +62,7 @@ type Keyword      = String
 data Spec_constant
   = Spec_constant_numeral     Numeral
   | Spec_constant_decimal     Rational
-  | Spec_constant_hexadecimal Integer
+  | Spec_constant_hexadecimal String
   | Spec_constant_binary      [Bool]
   | Spec_constant_string      String
 
@@ -71,7 +70,7 @@ instance Show Spec_constant where
   show a = case a of
     Spec_constant_numeral     a -> show a
     Spec_constant_decimal     a -> show (realToFrac a :: Double)
-    Spec_constant_hexadecimal a -> printf "#x%x" a
+    Spec_constant_hexadecimal a -> printf "#x%s" a
     Spec_constant_binary      a -> printf "#b%s" [ if a then '1' else '0' | a <- a ]
     Spec_constant_string      a -> show a
 
@@ -83,7 +82,7 @@ spec_constant = oneOf
       a <- satisfy (\ a -> case a of { Decimal _ -> True; Hex _ -> True; Bin _ -> True; _ -> False })
       case a of
         Decimal a -> return $ Spec_constant_decimal $ toRational a
-        Hex     a -> return $ Spec_constant_hexadecimal $ read $ "0x" ++ a  --XXX  Leading 0s will be dropped.
+        Hex     a -> return $ Spec_constant_hexadecimal a
         Bin     a -> return $ Spec_constant_binary $ map (== '1') a
         _ -> undefined
   ]
@@ -534,7 +533,7 @@ instance Show Script where
   show (Script a) = unlines $ map show a
 
 script :: SMTLIB Script
-script = many command >>= return . Script
+script = return Script `apply` many command `discard` eof
 
 data Gen_response
   = Unsupported
@@ -547,6 +546,13 @@ instance Show Gen_response where
     Success      -> "sucess"
     Error a      -> group ["error", show a]
 
+gen_response :: SMTLIB Gen_response
+gen_response = oneOf
+  [ do { tok $ Symbol "unsupported"; return Unsupported }
+  , do { tok $ Symbol "success"; return Success }
+  , do { left; tok $ Symbol "error"; a <- string; right; return $ Error a }
+  ]
+
 data Error_behavior
   = Immediate_exit
   | Continued_execution
@@ -555,6 +561,12 @@ instance Show Error_behavior where
   show a = case a of
     Immediate_exit      -> "immediate-exit"
     Continued_execution -> "continued-execution"
+
+error_behavior :: SMTLIB Error_behavior
+error_behavior = oneOf
+  [ do { tok $ Symbol "immediate-exit"; return Immediate_exit }
+  , do { tok $ Symbol "continued-execution"; return Continued_execution }
+  ]
 
 data Reason_unknown
   = Timeout
@@ -567,6 +579,13 @@ instance Show Reason_unknown where
     Memout     -> "memout"
     Incomplete -> "incomplete"
 
+reason_unknown :: SMTLIB Reason_unknown
+reason_unknown = oneOf
+  [ do { tok $ Symbol "timeout"; return Timeout }
+  , do { tok $ Symbol "memout"; return Memout }
+  , do { tok $ Symbol "incomplete"; return Incomplete }
+  ]
+
 data Status
   = Sat
   | Unsat
@@ -577,6 +596,13 @@ instance Show Status where
     Sat     -> "sat"
     Unsat   -> "unsat"
     Unknown -> "unknown"
+
+status :: SMTLIB Status
+status = oneOf
+  [ do { tok $ Symbol "sat"; return Sat }
+  , do { tok $ Symbol "unsat"; return Unsat }
+  , do { tok $ Symbol "unknown"; return Unknown }
+  ]
 
 data Info_response
   = Info_response_error_behavior Error_behavior
@@ -597,16 +623,59 @@ instance Show Info_response where
     Info_response_reason_unknown a -> ":reason-unknown " ++ show a
     Info_response_attribute      a -> show a
 
-type Gi_response      = [Info_response]
-type Cs_response      = Status
-type Ga_response      = [Term]
+info_response :: SMTLIB Info_response
+info_response = oneOf
+  [ do { tok $ Keyword ":error-behavior"; a <- error_behavior; return $ Info_response_error_behavior a }
+  , do { tok $ Keyword ":name"; a <- string; return $ Info_response_name a }
+  , do { tok $ Keyword ":authors"; a <- string; return $ Info_response_authors a }
+  , do { tok $ Keyword ":version"; a <- string; return $ Info_response_version a }
+  , do { tok $ Keyword ":status"; a <- status; return $ Info_response_status a }
+  , do { tok $ Keyword ":reason-unknown"; a <- reason_unknown; return $ Info_response_reason_unknown a }
+  , do attribute >>= return . Info_response_attribute
+  ]
+
 type Proof            = S_expr
-type Gp_response      = Proof
-type Guc_response     = [Symbol]
 type Valuation_pair   = (Term, Term)
-type Gv_response      = [Valuation_pair]
 type T_valuation_pair = (Symbol, Bool)
-type Gta_response     = [T_valuation_pair]
+
+data Command_response
+  = Gen_response  Gen_response
+  | Info_response Info_response
+  | Gi_response   [Info_response]
+  | Cs_response   Status
+  | Ga_response   [Term]
+  | Gp_response   Proof
+  | Guc_response  [Symbol]
+  | Gv_response   [Valuation_pair]
+  | Gta_response  [T_valuation_pair]
+
+instance Show Command_response where
+  show a = case a of
+    Gen_response  a -> show a
+    Info_response a -> show a
+    Gi_response   a -> group $ map show a
+    Cs_response   a -> show a
+    Ga_response   a -> group $ map show a
+    Gp_response   a -> show a
+    Guc_response  a -> group $ map show a
+    Gv_response   a -> group $ [ group [(show a), (show b)] | (a, b) <- a ]
+    Gta_response  a -> group $ [ group [(show a), (showBool b)] | (a, b) <- a ]
+
+command_response :: SMTLIB Command_response
+command_response = oneOf
+  [ gen_response >>= return . Gen_response
+  , info_response >>= return . Info_response
+  , do { left; a <- many1 info_response; right; return $ Gi_response a }
+  , status >>= return . Cs_response
+  , do { left; a <- many term; right; return $ Ga_response a }
+  , s_expr >>= return . Gp_response
+  , do { left; a <- many symbol; right; return $ Guc_response a }
+  , do { left; a <- many1 (do { left; a <- term; b <- term; return (a, b) }); right; return $ Gv_response a }
+  , do { left; a <- many (do { left; a <- symbol; b <- b_value; return (a, b) }); right; return $ Gta_response a }
+  ]
+
+responses :: SMTLIB [Command_response]
+responses = return id `apply` many command_response `discard` eof
 
 group :: [String] -> String
 group a = "( " ++ intercalate " " a ++ " )"
@@ -659,17 +728,44 @@ b_value = oneOf
   , do { tok $ Symbol "false"; return False }
   ]
 
--- | Parses an SMT-LIB command script.
+-- | Lazily parses an SMT-LIB command script.
 parseScript :: String -> Script
-parseScript s = case runParser script $ lexSMTLIB s of
-  (Left msg, _) -> error msg
-  (Right a, _)  -> a
+parseScript s = fst $ runParser script $ lexSMTLIB s
+
+-- | Lazily parses an SMT-LIB command responses.
+parseResponses :: String -> [Command_response]
+parseResponses s = fst $ runParser responses $ lexSMTLIB s
+
+-- | Lazily parses an SMT-LIB theory declaration.
+parseTheory :: String -> Theory_decl
+parseTheory s = fst $ runParser theory_decl $ lexSMTLIB s
+
+-- | Lazily parses an SMT-LIB logic.
+parseLogic :: String -> Logic
+parseLogic s = fst $ runParser logic $ lexSMTLIB s
 
 -- | Checks the parsing of a command script.
-checkScript :: String -> Bool
-checkScript script = clean script == clean (show $ parseScript script)
-  where
-  clean = filter (flip notElem " \r\n\t") . unlines . map (takeWhile (/= ';')) . lines
+checkScript :: FilePath -> IO Bool
+checkScript file = do
+  script <- readFile file
+  let orig = clean script
+      parsed = clean $ show $ parseScript script
+  if orig == parsed then return True else do
+    writeFile (file ++ ".fail") $ show $ parseScript script
+    return False
+
+-- | Checks the parsing of command responses.
+checkResponses :: FilePath -> IO Bool
+checkResponses file = do
+  script <- readFile file
+  let orig = clean script
+      parsed = clean $ show $ parseResponses script
+  if orig == parsed then return True else do
+    writeFile (file ++ ".fail") $ show $ parseResponses script
+    return False
+
+clean :: String -> String
+clean = filter (flip notElem " \t\r\n") . unlines . map (takeWhile (/= ';')) . lines
 
 -- | Recursively searches current directory for *.smt2 files to test the parser.
 checkParser :: IO ()
@@ -692,8 +788,7 @@ checkParser = do
           then do
             putStr $ "testing file " ++ f ++ " ... "
             hFlush stdout
-            a <- readFile f
-            let pass = checkScript a
+            pass <- checkScript f
             putStrLn (if pass then "pass" else "FAIL")
             hFlush stdout
             return pass
