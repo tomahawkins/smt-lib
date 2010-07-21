@@ -17,8 +17,11 @@ license-file: LICENSE
 
 homepage: http://tomahawkins.org
 
-build-type:    Simple
+build-type:    Custom
 cabal-version: >= 1.6
+
+extra-source-files:
+  AutoAST.hs
 
 library
     build-depends:
@@ -30,6 +33,7 @@ library
     exposed-modules:
         Language.SMTLIB
         Language.SMTLIB.Lexer
+        Language.SMTLIB.Version12
 
     ghc-options: -W
 
