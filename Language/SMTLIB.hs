@@ -490,7 +490,7 @@ instance Show Command where
     Declare_sort a b -> group ["declare-sort", a, show b]
     Define_sort  a b c -> group ["define-sort", a, group (map show b), show c]
     Declare_fun  a b c -> group ["declare-fun", a, group (map show b), show c]
-    Define_fun   a b c d -> group ["define_fun", a, group (map show b), show c, show d]
+    Define_fun   a b c d -> group ["define-fun", a, group (map show b), show c, show d]
     Push a -> group ["push", show a]
     Pop  a -> group ["pop",  show a]
     Assert a -> group ["assert", show a]
