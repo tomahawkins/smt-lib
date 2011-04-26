@@ -29,7 +29,7 @@ tokens :-
   \|[$printable \n # \|]*\|          { Symbol  }
   \:$sym+                            { Keyword }
   $digit+\.$digit+                   { Decimal . read }
-  $digit                             { Numeral . read }
+  $digit+                            { Numeral . read }
   \(                                 { const LeftParen  }
   \)                                 { const RightParen }
   \"(([$printable \n # \\]|\\.)*)\"  { String . read }
