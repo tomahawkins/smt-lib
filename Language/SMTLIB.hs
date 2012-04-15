@@ -58,28 +58,42 @@ import Text.Printf
 
 import Prelude hiding ((++))
 import qualified Prelude
-import Data.Monoid (mappend, Monoid)
-import Text.PrettyPrint.HughesPJ
+import Data.Monoid (mappend, mempty, Monoid)
+
+--import Text.PrettyPrint.HughesPJ
+import Text.PrettyPrint.Leijen 
+  hiding ( group, string, Pretty, pretty )
+
 import Data.Char ( toLower )
+import Data.String
 
 import Language.SMTLIB.Lexer
-
-class Pretty a where pretty :: a -> Doc
-
-pgroup :: [ Doc ] -> Doc
-pgroup xs = parens $ fsep xs
 
 (++) :: Monoid a => a -> a -> a
 (++) = mappend
 
-type Numeral      = Integer
+group :: [Doc] -> Doc
+group a = -- "( " ++ intercalate " " a ++ " )"
+    parens $ hsep a
+
+instance Monoid Doc where 
+  mappend = ( <+> )
+  mempty = Text.PrettyPrint.Leijen.empty
+
+instance IsString Doc where
+  fromString = text
+
+render d = displayS ( renderPretty 0.2 1000 d ) ""
+
+type Numeral      = Integer 
 type Symbol       = String
 type Keyword      = String
 
+class Pretty a where pretty :: a -> Doc
+
 instance Pretty Integer where pretty = text . show
 instance Pretty Int where pretty = text . show
-instance Pretty Bool where 
-  pretty = text . map toLower . show
+instance Pretty Bool where pretty = text . map toLower . show
 
 data Spec_constant
   = Spec_constant_numeral     Numeral
@@ -156,7 +170,7 @@ instance Pretty Sort where
   pretty a = case a of
     Sort_bool -> text "Bool"
     Sort_identifier  a -> pretty a
-    Sort_identifiers a b -> pgroup $ pretty a : map pretty b 
+    Sort_identifiers a b -> group $ pretty a : map pretty b 
 
 sort' :: SMTLIB Sort
 sort' = oneOf
@@ -220,7 +234,7 @@ data Var_binding
 
 instance Pretty Var_binding where
   pretty a = case a of
-    Var_binding a b -> pgroup [ text a, pretty b ]
+    Var_binding a b -> group [ text a, pretty b ]
 
 var_binding :: SMTLIB Var_binding
 var_binding = do { left; a <- symbol; b <- term; right; return $ Var_binding a b }
@@ -245,6 +259,8 @@ data Term
   | Term_forall           [Sorted_var] Term
   | Term_exists           [Sorted_var] Term
   | Term_attributes       Term [Attribute]
+
+instance Show Term where show = render . pretty
 
 instance Pretty Term where
   pretty a = case a of
@@ -514,6 +530,8 @@ data Command
   | Get_info Info_flag
   | Exit
 
+instance Show Command where show = render . pretty
+
 instance Pretty Command where
   pretty a = case a of
     Set_logic    a -> group ["set-logic", text a]
@@ -564,7 +582,8 @@ data Script = Script [Command]
 instance Pretty Script where
   pretty (Script a) = vcat $ map pretty a
   
-instance Show Script where show = render . pretty  
+instance Show Script where 
+    show = render . pretty  
 
 script :: SMTLIB Script
 script = return Script `apply` many command `discard` eof
@@ -714,11 +733,6 @@ command_response = oneOf
 
 responses :: SMTLIB [Command_response]
 responses = return id `apply` many command_response `discard` eof
-
-group :: [Doc] -> Doc
-group a = 
-    -- "( " ++ intercalate " " a ++ " )"
-    parens $ fsep a
 
 type SMTLIB a = Parser Token a
 
