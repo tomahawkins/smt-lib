@@ -1,4 +1,7 @@
 -- | Parsing and printing SMT-LIB.
+
+{-# language OverloadedStrings #-}
+
 module Language.SMTLIB
   (
   -- * Syntax
@@ -47,17 +50,36 @@ module Language.SMTLIB
   , checkParser
   ) where
 
-import Data.List hiding (group)
+import Data.List hiding (group, (++))
 import System.Directory
 import System.IO
 import Text.ParserCombinators.Poly.Lazy hiding (Success)
 import Text.Printf
 
+import Prelude hiding ((++))
+import qualified Prelude
+import Data.Monoid (mappend, Monoid)
+import Text.PrettyPrint.HughesPJ
+import Data.Char ( toLower )
+
 import Language.SMTLIB.Lexer
+
+class Pretty a where pretty :: a -> Doc
+
+pgroup :: [ Doc ] -> Doc
+pgroup xs = parens $ fsep xs
+
+(++) :: Monoid a => a -> a -> a
+(++) = mappend
 
 type Numeral      = Integer
 type Symbol       = String
 type Keyword      = String
+
+instance Pretty Integer where pretty = text . show
+instance Pretty Int where pretty = text . show
+instance Pretty Bool where 
+  pretty = text . map toLower . show
 
 data Spec_constant
   = Spec_constant_numeral     Numeral
@@ -66,13 +88,14 @@ data Spec_constant
   | Spec_constant_binary      [Bool]
   | Spec_constant_string      String
 
-instance Show Spec_constant where
-  show a = case a of
-    Spec_constant_numeral     a -> show a
-    Spec_constant_decimal     a -> show (realToFrac a :: Double)
-    Spec_constant_hexadecimal a -> printf "#x%s" a
-    Spec_constant_binary      a -> printf "#b%s" [ if a then '1' else '0' | a <- a ]
-    Spec_constant_string      a -> show a
+instance Pretty Spec_constant where
+  pretty a = case a of
+    Spec_constant_numeral     a -> pretty a
+    Spec_constant_decimal     a -> text $ show (realToFrac a :: Double)
+    Spec_constant_hexadecimal a -> text $ printf "#x%s" a
+    Spec_constant_binary      a -> text $ printf "#b%s" [ if a then '1' else '0' | a <- a ]
+    Spec_constant_string      a -> text a
+
 
 spec_constant :: SMTLIB Spec_constant
 spec_constant = oneOf
@@ -93,12 +116,12 @@ data S_expr
   | S_expr_keyword  Keyword
   | S_exprs         [S_expr]
 
-instance Show S_expr where
-  show a = case a of
-    S_expr_constant a -> show a
-    S_expr_symbol   a -> a
-    S_expr_keyword  a -> a
-    S_exprs         a -> group $ map show a
+instance Pretty S_expr where
+  pretty a = case a of
+    S_expr_constant a -> pretty a
+    S_expr_symbol   a -> text a
+    S_expr_keyword  a -> text a
+    S_exprs         a -> group $ map pretty a
 
 s_expr :: SMTLIB S_expr
 s_expr = oneOf
@@ -112,10 +135,11 @@ data Identifier
   = Identifier  Symbol
   | Identifier_ Symbol [Numeral]
 
-instance Show Identifier where
-  show a = case a of
-    Identifier  a -> a
-    Identifier_ a b -> group $ ["_", a] ++ map show b
+instance Pretty Identifier where
+  pretty a = case a of
+    Identifier  a -> text a
+    Identifier_ a b -> group $ ["_", text a] ++ map pretty b
+
 
 identifier :: SMTLIB Identifier
 identifier = oneOf
@@ -128,11 +152,11 @@ data Sort
   | Sort_identifier  Identifier
   | Sort_identifiers Identifier [Sort]
 
-instance Show Sort where
-  show a = case a of
-    Sort_bool -> "Bool"
-    Sort_identifier  a -> show a
-    Sort_identifiers a b -> group $ show a : map show b
+instance Pretty Sort where 
+  pretty a = case a of
+    Sort_bool -> text "Bool"
+    Sort_identifier  a -> pretty a
+    Sort_identifiers a b -> pgroup $ pretty a : map pretty b 
 
 sort' :: SMTLIB Sort
 sort' = oneOf
@@ -146,11 +170,11 @@ data Attribute_value
   | Attribute_value_symbol        Symbol
   | Attribute_value_s_expr        [S_expr]
 
-instance Show Attribute_value where
-  show a = case a of
-    Attribute_value_spec_constant a -> show a
-    Attribute_value_symbol        a -> a
-    Attribute_value_s_expr        a -> group $ map show a
+instance Pretty Attribute_value where
+  pretty a = case a of
+    Attribute_value_spec_constant a -> pretty a
+    Attribute_value_symbol        a -> text a
+    Attribute_value_s_expr        a -> group $ map pretty a
 
 attribute_value :: SMTLIB Attribute_value
 attribute_value = oneOf
@@ -163,10 +187,10 @@ data Attribute
   = Attribute        Keyword
   | Attribute_s_expr Keyword S_expr
 
-instance Show Attribute where
-  show a = case a of
-    Attribute        a -> a
-    Attribute_s_expr a b -> a ++ " " ++ show b
+instance Pretty Attribute where
+  pretty a = case a of
+    Attribute        a -> text a
+    Attribute_s_expr a b -> text a ++ " " ++ pretty b
 
 attribute :: SMTLIB Attribute
 attribute = oneOf
@@ -178,11 +202,12 @@ data Qual_identifier
   = Qual_identifier      Identifier
   | Qual_identifier_sort Identifier Sort
 
-instance Show Qual_identifier where
-  show a = case a of
-    Qual_identifier      a -> show a
-    Qual_identifier_sort a b -> group ["as", show a, show b]
+instance Pretty Qual_identifier where
+  pretty a = case a of
+    Qual_identifier      a -> pretty a
+    Qual_identifier_sort a b -> group ["as", pretty a, pretty b]
 
+                                
 qual_identifier :: SMTLIB Qual_identifier
 qual_identifier = oneOf
   [ identifier >>= return . Qual_identifier
@@ -192,9 +217,10 @@ qual_identifier = oneOf
 data Var_binding
   = Var_binding Symbol Term
 
-instance Show Var_binding where
-  show a = case a of
-    Var_binding a b -> group [a, show b]
+
+instance Pretty Var_binding where
+  pretty a = case a of
+    Var_binding a b -> pgroup [ text a, pretty b ]
 
 var_binding :: SMTLIB Var_binding
 var_binding = do { left; a <- symbol; b <- term; right; return $ Var_binding a b }
@@ -202,9 +228,10 @@ var_binding = do { left; a <- symbol; b <- term; right; return $ Var_binding a b
 data Sorted_var
   = Sorted_var Symbol Sort
 
-instance Show Sorted_var where
-  show a = case a of
-    Sorted_var a b -> group [a, show b]
+instance Pretty Sorted_var where
+  pretty a = case a of
+    Sorted_var a b -> group [text a, pretty b]
+
 
 sorted_var :: SMTLIB Sorted_var
 sorted_var = do { left; a <- symbol; b <- sort'; right; return $ Sorted_var a b }
@@ -219,16 +246,19 @@ data Term
   | Term_exists           [Sorted_var] Term
   | Term_attributes       Term [Attribute]
 
-instance Show Term where
-  show a = case a of
-    Term_spec_constant    a -> show a
-    Term_qual_identifier  a -> show a
-    Term_qual_identifier_ a b -> group $ show a : map show b
-    Term_distinct         a b -> group $ ["distinct", show a] ++ map show b
-    Term_let              a b -> group $ ["let",    group $ map show a, show b]
-    Term_forall           a b -> group $ ["forall", group $ map show a, show b]
-    Term_exists           a b -> group $ ["exists", group $ map show a, show b]
-    Term_attributes       a b -> group $ ["!", show a] ++ map show b
+instance Pretty Term where
+  pretty a = case a of
+    Term_spec_constant    a -> pretty a
+    Term_qual_identifier  a -> pretty a
+    Term_qual_identifier_ a b -> group $ pretty a : map pretty b
+    Term_distinct         a b -> group $ ["distinct", pretty a] ++ map pretty b
+    Term_let              a b -> group $ ["let",    group $ map pretty a, pretty b]
+    Term_forall           a b -> group $ ["forall", group $ map pretty a, pretty b]
+    Term_exists           a b -> group $ ["exists", group $ map pretty a, pretty b]
+    Term_attributes       a b -> group $ ["!", pretty a] ++ map pretty b
+
+
+
 
 term :: SMTLIB Term
 term = oneOf
@@ -245,9 +275,9 @@ term = oneOf
 data Sort_symbol_decl
   = Sort_symbol_decl Identifier Numeral [Attribute]
 
-instance Show Sort_symbol_decl where
-  show a = case a of
-    Sort_symbol_decl a b c -> group $ [show a, show b] ++ map show c
+instance Pretty Sort_symbol_decl where
+  pretty a = case a of
+    Sort_symbol_decl a b c -> group $ [pretty a, pretty b] ++ map pretty c
 
 sort_symbol_decl :: SMTLIB Sort_symbol_decl
 sort_symbol_decl = do { left; a <- identifier; b <- numeral; c <- many attribute; right; return $ Sort_symbol_decl a b c }
@@ -257,8 +287,8 @@ data Meta_spec_constant
   | Meta_spec_constant_decimal
   | Meta_spec_constant_string
 
-instance Show Meta_spec_constant where
-  show a = case a of
+instance Pretty Meta_spec_constant where
+  pretty a = case a of
     Meta_spec_constant_numeral -> "NUMERAL"
     Meta_spec_constant_decimal -> "DECIMAL"
     Meta_spec_constant_string  -> "STRING"
@@ -275,11 +305,11 @@ data Fun_symbol_decl
   | Fun_symbol_decl_meta_spec_constant Meta_spec_constant Sort [Attribute]
   | Fun_symbol_decl                    Identifier [Sort] [Attribute]
 
-instance Show Fun_symbol_decl where
-  show a = case a of
-    Fun_symbol_decl_spec_constant      a b c -> group $ [show a, show b] ++ map show c
-    Fun_symbol_decl_meta_spec_constant a b c -> group $ [show a, show b] ++ map show c
-    Fun_symbol_decl                    a b c -> group $ [show a] ++ map show b ++ map show c
+instance Pretty Fun_symbol_decl where
+  pretty a = case a of
+    Fun_symbol_decl_spec_constant      a b c -> group $ [pretty a, pretty b] ++ map pretty c
+    Fun_symbol_decl_meta_spec_constant a b c -> group $ [pretty a, pretty b] ++ map pretty c
+    Fun_symbol_decl                    a b c -> group $ [pretty a] ++ map pretty b ++ map pretty c
 
 fun_symbol_decl :: SMTLIB Fun_symbol_decl
 fun_symbol_decl = oneOf
@@ -292,10 +322,12 @@ data Par_fun_symbol_decl
   = Par_fun_symbol_decl Fun_symbol_decl
   | Par_fun_symbol_decl_symbols [Symbol] Identifier [Sort] [Attribute]
 
-instance Show Par_fun_symbol_decl where
-  show a = case a of
-    Par_fun_symbol_decl a -> show a
-    Par_fun_symbol_decl_symbols a b c d -> group ["par", group $ map show a, group $ [show b] ++ map show c ++ map show d]
+instance Pretty Par_fun_symbol_decl where
+  pretty a = case a of
+    Par_fun_symbol_decl a -> pretty a
+    Par_fun_symbol_decl_symbols a b c d -> 
+      group ["par", group $ map text a
+            , group $ [pretty b] ++ map pretty c ++ map pretty d]
 
 par_fun_symbol_decl :: SMTLIB Par_fun_symbol_decl
 par_fun_symbol_decl = oneOf
@@ -313,16 +345,16 @@ data Theory_attribute
   | Theory_attribute_notes      String
   | Theory_attribute            Attribute
 
-instance Show Theory_attribute where
-  show a = case a of
-    Theory_attribute_sorts      a -> ":sorts " ++ group (map show a)
-    Theory_attribute_funs       a -> ":funs "  ++ group (map show a)
-    Theory_attribute_sorts_desc a -> ":sorts-description " ++ show a
-    Theory_attribute_funs_desc  a -> ":funs-description "  ++ show a
-    Theory_attribute_definition a -> ":definition "        ++ show a
-    Theory_attribute_values     a -> ":values "            ++ show a
-    Theory_attribute_notes      a -> ":notes "             ++ show a
-    Theory_attribute            a -> show a
+instance Pretty Theory_attribute where
+  pretty a = case a of
+    Theory_attribute_sorts      a -> ":sorts " ++ group (map pretty a)
+    Theory_attribute_funs       a -> ":funs "  ++ group (map pretty a)
+    Theory_attribute_sorts_desc a -> ":sorts-description " ++ text a
+    Theory_attribute_funs_desc  a -> ":funs-description "  ++ text a
+    Theory_attribute_definition a -> ":definition "        ++ text a
+    Theory_attribute_values     a -> ":values "            ++ text a
+    Theory_attribute_notes      a -> ":notes "             ++ text a
+    Theory_attribute            a -> pretty a
 
 theory_attribute :: SMTLIB Theory_attribute
 theory_attribute = oneOf
@@ -339,9 +371,9 @@ theory_attribute = oneOf
 data Theory_decl
   = Theory_decl Symbol [Theory_attribute]
 
-instance Show Theory_decl where
-  show a = case a of
-    Theory_decl a b -> group $ ["theory", show a] ++ map show b
+instance Pretty Theory_decl where
+  pretty a = case a of
+    Theory_decl a b -> group $ ["theory", text a] ++ map pretty b
 
 theory_decl :: SMTLIB Theory_decl
 theory_decl = do { left; tok $ Symbol "theory"; a <- symbol; b <- many1 theory_attribute; right; return $ Theory_decl a b }
@@ -354,14 +386,14 @@ data Logic_attribute
   | Logic_attribute_notes      String
   | Logic_attribute            Attribute
 
-instance Show Logic_attribute where
-  show a = case a of
-    Logic_attribute_theories    a -> ":theories " ++ group (map show a)
-    Logic_attribute_language    a -> ":language "   ++ show a
-    Logic_attribute_extensions  a -> ":extensions " ++ show a
-    Logic_attribute_values      a -> ":values "     ++ show a
-    Logic_attribute_notes       a -> ":notes "      ++ show a
-    Logic_attribute             a -> show a
+instance Pretty Logic_attribute where
+  pretty a = case a of
+    Logic_attribute_theories    a -> ":theories " ++ group (map text a)
+    Logic_attribute_language    a -> ":language "   ++ text a
+    Logic_attribute_extensions  a -> ":extensions " ++ text a
+    Logic_attribute_values      a -> ":values "     ++ text a
+    Logic_attribute_notes       a -> ":notes "      ++ text a
+    Logic_attribute             a -> pretty a
 
 logic_attribute :: SMTLIB Logic_attribute
 logic_attribute = oneOf
@@ -376,9 +408,9 @@ logic_attribute = oneOf
 data Logic
   = Logic Symbol [Logic_attribute]
 
-instance Show Logic where
-  show a = case a of
-    Logic a b -> group $ ["logic", a] ++ map show b
+instance Pretty Logic where
+  pretty a = case a of
+    Logic a b -> group $ ["logic", text a] ++ map pretty b
 
 logic :: SMTLIB Logic
 logic = do { left; tok $ Symbol "logic"; a <- symbol; b <- many1 logic_attribute; right; return $ Logic a b }
@@ -397,20 +429,20 @@ data Option
   | Verbosity Int
   | Option_attribute Attribute
 
-instance Show Option where
-  show a = case a of
-    Print_success             a -> ":print-success "             ++ showBool a
-    Expand_definitions        a -> ":expand-definitions "        ++ showBool a
-    Interactive_mode          a -> ":interactive-mode "          ++ showBool a
-    Produce_proofs            a -> ":produce-proofs "            ++ showBool a
-    Produce_unsat_cores       a -> ":produce-unsat-cores "       ++ showBool a
-    Produce_models            a -> ":produce-models "            ++ showBool a
-    Produce_assignments       a -> ":produce-assignments "       ++ showBool a
-    Regular_output_channel    a -> ":regular-output-channel "    ++ show a
-    Diagnostic_output_channel a -> ":diagnostic-output-channel " ++ show a
-    Random_seed               a -> ":random-seed "               ++ show a
-    Verbosity                 a -> ":verbosity "                 ++ show a
-    Option_attribute          a -> show a
+instance Pretty Option where
+  pretty a = case a of
+    Print_success             a -> ":print-success "             ++ pretty a
+    Expand_definitions        a -> ":expand-definitions "        ++ pretty a
+    Interactive_mode          a -> ":interactive-mode "          ++ pretty a
+    Produce_proofs            a -> ":produce-proofs "            ++ pretty a
+    Produce_unsat_cores       a -> ":produce-unsat-cores "       ++ pretty a
+    Produce_models            a -> ":produce-models "            ++ pretty a
+    Produce_assignments       a -> ":produce-assignments "       ++ pretty a
+    Regular_output_channel    a -> ":regular-output-channel "    ++ text a
+    Diagnostic_output_channel a -> ":diagnostic-output-channel " ++ text a
+    Random_seed               a -> ":random-seed "               ++ pretty a
+    Verbosity                 a -> ":verbosity "                 ++ pretty a
+    Option_attribute          a -> pretty a
 
 option :: SMTLIB Option
 option = oneOf
@@ -438,15 +470,15 @@ data Info_flag
   | Info_flag Keyword
   | All_statistics
 
-instance Show Info_flag where
-  show a = case a of
+instance Pretty Info_flag where
+  pretty a = case a of
     Error_behavior -> ":error-behavior"
     Name           -> ":name"
     Authors        -> ":authors"
     Version        -> ":version"
     Status         -> ":status"
     Reason_unknown -> ":reason-unknown"
-    Info_flag    a -> a
+    Info_flag    a -> text a
     All_statistics -> ":all-statistics"
 
 info_flag :: SMTLIB Info_flag
@@ -482,26 +514,26 @@ data Command
   | Get_info Info_flag
   | Exit
 
-instance Show Command where
-  show a = case a of
-    Set_logic    a -> group ["set-logic", a]
-    Set_option   a -> group ["set-option", show a]
-    Set_info     a -> group ["set-info", show a]
-    Declare_sort a b -> group ["declare-sort", a, show b]
-    Define_sort  a b c -> group ["define-sort", a, group (map show b), show c]
-    Declare_fun  a b c -> group ["declare-fun", a, group (map show b), show c]
-    Define_fun   a b c d -> group ["define-fun", a, group (map show b), show c, show d]
-    Push a -> group ["push", show a]
-    Pop  a -> group ["pop",  show a]
-    Assert a -> group ["assert", show a]
+instance Pretty Command where
+  pretty a = case a of
+    Set_logic    a -> group ["set-logic", text a]
+    Set_option   a -> group ["set-option", pretty a]
+    Set_info     a -> group ["set-info", pretty a]
+    Declare_sort a b -> group ["declare-sort", text a, pretty b]
+    Define_sort  a b c -> group ["define-sort", text a, group (map text b), pretty c]
+    Declare_fun  a b c -> group ["declare-fun", text a, group (map pretty b), pretty c]
+    Define_fun   a b c d -> group ["define-fun", text a, group (map pretty b), pretty c, pretty d]
+    Push a -> group ["push", pretty a]
+    Pop  a -> group ["pop",  pretty a]
+    Assert a -> group ["assert", pretty a]
     Check_sat -> group ["check-sat"]
     Get_assertions -> group ["get-assertions"]
     Get_proof      -> group ["get-proof"]
     Get_unsat_core -> group ["get-unsat-core"]
-    Get_value a -> group ["get-value", group $ map show a]
+    Get_value a -> group ["get-value", group $ map pretty a]
     Get_assignment -> group ["get-assignment"]
-    Get_option a -> group ["get-option", a]
-    Get_info   a -> group ["get-info", show a]
+    Get_option a -> group ["get-option", text a]
+    Get_info   a -> group ["get-info", pretty a]
     Exit -> group ["exit"]
 
 command :: SMTLIB Command
@@ -529,8 +561,10 @@ command = oneOf
 
 data Script = Script [Command]
 
-instance Show Script where
-  show (Script a) = unlines $ map show a
+instance Pretty Script where
+  pretty (Script a) = vcat $ map pretty a
+  
+instance Show Script where show = render . pretty  
 
 script :: SMTLIB Script
 script = return Script `apply` many command `discard` eof
@@ -540,11 +574,11 @@ data Gen_response
   | Success
   | Error String
 
-instance Show Gen_response where
-  show a = case a of
+instance Pretty Gen_response where
+  pretty a = case a of
     Unsupported  -> "unsupported"
     Success      -> "sucess"
-    Error a      -> group ["error", show a]
+    Error a      -> group ["error", text a]
 
 gen_response :: SMTLIB Gen_response
 gen_response = oneOf
@@ -557,8 +591,8 @@ data Error_behavior
   = Immediate_exit
   | Continued_execution
 
-instance Show Error_behavior where
-  show a = case a of
+instance Pretty Error_behavior where
+  pretty a = case a of
     Immediate_exit      -> "immediate-exit"
     Continued_execution -> "continued-execution"
 
@@ -573,8 +607,8 @@ data Reason_unknown
   | Memout
   | Incomplete
 
-instance Show Reason_unknown where
-  show a = case a of
+instance Pretty Reason_unknown where
+  pretty a = case a of
     Timeout    -> "timeout"
     Memout     -> "memout"
     Incomplete -> "incomplete"
@@ -591,8 +625,8 @@ data Status
   | Unsat
   | Unknown
 
-instance Show Status where
-  show a = case a of
+instance Pretty Status where
+  pretty a = case a of
     Sat     -> "sat"
     Unsat   -> "unsat"
     Unknown -> "unknown"
@@ -613,15 +647,16 @@ data Info_response
   | Info_response_reason_unknown Reason_unknown
   | Info_response_attribute Attribute
 
-instance Show Info_response where
-  show a = case a of
-    Info_response_error_behavior a -> ":error-behavior " ++ show a
-    Info_response_name           a -> ":name "           ++ show a
-    Info_response_authors        a -> ":authors "        ++ show a
-    Info_response_version        a -> ":version "        ++ show a
-    Info_response_status         a -> ":status "         ++ show a
-    Info_response_reason_unknown a -> ":reason-unknown " ++ show a
-    Info_response_attribute      a -> show a
+instance Pretty Info_response where
+  pretty a = case a of
+    Info_response_error_behavior a -> ":error-behavior " ++ pretty a
+    Info_response_name           a -> ":name "           ++ text a
+    Info_response_authors        a -> ":authors "        ++ text a
+    Info_response_version        a -> ":version "        ++ text a
+    Info_response_status         a -> ":status "         ++ pretty a
+    Info_response_reason_unknown a -> ":reason-unknown " ++ pretty a
+    Info_response_attribute      a -> pretty a
+
 
 info_response :: SMTLIB Info_response
 info_response = oneOf
@@ -649,17 +684,20 @@ data Command_response
   | Gv_response   [Valuation_pair]
   | Gta_response  [T_valuation_pair]
 
-instance Show Command_response where
-  show a = case a of
-    Gen_response  a -> show a
-    Info_response a -> show a
-    Gi_response   a -> group $ map show a
-    Cs_response   a -> show a
-    Ga_response   a -> group $ map show a
-    Gp_response   a -> show a
-    Guc_response  a -> group $ map show a
-    Gv_response   a -> group $ [ group [(show a), (show b)] | (a, b) <- a ]
-    Gta_response  a -> group $ [ group [(show a), (showBool b)] | (a, b) <- a ]
+instance Show Command_response where 
+   show = render . pretty
+
+instance Pretty Command_response where
+  pretty a = case a of
+    Gen_response  a -> pretty a
+    Info_response a -> pretty a
+    Gi_response   a -> group $ map pretty a
+    Cs_response   a -> pretty a
+    Ga_response   a -> group $ map pretty a
+    Gp_response   a -> pretty a
+    Guc_response  a -> group $ map text a
+    Gv_response   a -> group $ [ group [(pretty a), (pretty b)] | (a, b) <- a ]
+    Gta_response  a -> group $ [ group [(text a), (pretty b)] | (a, b) <- a ]
 
 command_response :: SMTLIB Command_response
 command_response = oneOf
@@ -677,11 +715,10 @@ command_response = oneOf
 responses :: SMTLIB [Command_response]
 responses = return id `apply` many command_response `discard` eof
 
-group :: [String] -> String
-group a = "( " ++ intercalate " " a ++ " )"
-
-showBool :: Bool -> String
-showBool a = if a then "true" else "false"
+group :: [Doc] -> Doc
+group a = 
+    -- "( " ++ intercalate " " a ++ " )"
+    parens $ fsep a
 
 type SMTLIB a = Parser Token a
 
