@@ -816,7 +816,7 @@ checkResponses file = do
     return False
 
 clean :: String -> String
-clean = filter (flip notElem " \t\r\n") . unlines . map (takeWhile (/= ';')) . lines
+clean = filter (flip notElem (" \t\r\n" :: String)) . unlines . map (takeWhile (/= ';')) . lines
 
 -- | Recursively searches current directory for *.smt2 files to test the parser.
 checkParser :: IO ()
