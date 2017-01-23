@@ -24,10 +24,10 @@ extra-source-files:
 
 library
     build-depends:
-        base       >= 4.0 && < 5.0,
-        directory  >= 1.0         ,
-        array      >= 0.3         ,
-        polyparse  >= 1.4	  ,
+        base      < 5 ,
+        directory ,
+        array     ,
+        polyparse ,
         wl-pprint
 
     exposed-modules:
